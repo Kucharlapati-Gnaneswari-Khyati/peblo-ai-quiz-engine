@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+<title>Peblo AI Quiz Engine</title>
+
+<style>
+
+body{
+font-family:Arial, Helvetica, sans-serif;
+background:#f4f6f9;
+margin:0;
+padding:40px;
+}
+
+.container{
+max-width:700px;
+margin:auto;
+background:white;
+padding:30px;
+border-radius:10px;
+box-shadow:0 5px 15px rgba(0,0,0,0.1);
+}
+
+h1{
+text-align:center;
+margin-bottom:20px;
+}
+
+button{
+padding:10px 18px;
+margin:5px;
+border:none;
+background:#021055;
+color:white;
+border-radius:6px;
+cursor:pointer;
+font-size:16px;
+}
+
+button:hover{
+background:#02125a;
+}
+
+.subject-buttons{
+text-align:center;
+margin-bottom:20px;
+}
+
+.quiz-box{
+margin-top:20px;
+}
+
+.option{
+margin:8px 0;
+}
+
+.result{
+margin-top:15px;
+font-weight:bold;
+font-size:18px;
+}
+
+.level{
+color:#077b95;
+font-size:14px;
+margin-bottom:10px;
+}
+
+input[type="text"]{
+padding:10px;
+font-size:18px;
+width:200px;
+border:2px solid #021055;
+border-radius:5px;
+margin-top:10px;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>Peblo AI Quiz Engine</h1>
+
+<div class="subject-buttons">
+
+<button onclick="selectSubject('peblo_pdf_grade1_math_numbers.pdf')">Math</button> <button onclick="selectSubject('peblo_pdf_grade3_science_plants_animals.pdf')">Science</button> <button onclick="selectSubject('peblo_pdf_grade4_english_grammar.pdf')">English</button>
+
+</div>
+
+<div style="text-align:center">
+
+<button onclick="generateQuiz()">Generate Quiz</button> <button onclick="loadQuiz()">Load Question</button>
+
+</div>
+
+<div class="quiz-box" id="quiz"></div>
+
+<div class="result" id="result"></div>
+
+</div>
+
+<script>
+
+let currentSource="";
+let currentDifficulty="medium";
+let currentQuestionId=null;
+
+/* ------------------------
+Select subject
+------------------------ */
+
+async function selectSubject(file){
+
+currentSource=file;
+
+const res = await fetch(`/ingest?file=${file}`);
+const data = await res.json();
+
+const exampleChunk = {
+source_id: data.file,
+chunk_id: `${data.file}_CH_0`,
+grade: data.grade,
+subject: data.subject,
+topic: data.topic,
+text: "A triangle has three sides..."
+};
+
+alert(
+"Example internal representation:\n\n"+
+JSON.stringify(exampleChunk,null,2)
+);
+
+}
+
+/* ------------------------
+Generate quiz
+------------------------ */
+
+async function generateQuiz(){
+
+if(!currentSource){
+alert("Select subject first");
+return;
+}
+
+await fetch(`/generate-quiz?source=${currentSource}`);
+
+alert("Quiz generated");
+
+}
+
+/* ------------------------
+Load question
+------------------------ */
+
+async function loadQuiz(){
+
+if(!currentSource){
+alert("Select subject first");
+return;
+}
+
+const res=await fetch(`/quiz?source=${currentSource}&difficulty=${currentDifficulty}`);
+const q=await res.json();
+
+if(q.message){
+document.getElementById("quiz").innerHTML="No questions available";
+return;
+}
+
+currentQuestionId=q.id;
+
+const container=document.getElementById("quiz");
+
+let optionsHTML="";
+
+/* ---- Fill in the Blank ---- */
+
+if(q.type && q.type.toLowerCase().includes("fill")){
+
+optionsHTML=`
+<div class="option">
+<input 
+type="text"
+id="blankAnswer"
+placeholder="Type your answer here"
+>
+</div>
+`;
+
+}
+
+/* ---- MCQ / TrueFalse ---- */
+
+else{
+
+optionsHTML=q.options.map(o=>`
+<div class="option">
+<label>
+<input type="radio" name="answer" value="${o}">
+${o}
+</label>
+</div>
+`).join("");
+
+}
+
+container.innerHTML=`
+
+<div class="level">
+Difficulty: ${currentDifficulty}
+</div>
+
+<h3>${q.question}</h3>
+
+${optionsHTML}
+
+<button onclick="submitAnswer()">Submit Answer</button>
+
+`;
+
+}
+
+/* ------------------------
+Submit answer
+------------------------ */
+
+async function submitAnswer(){
+
+let selectedAnswer;
+
+/* Fill blank input */
+
+if(document.getElementById("blankAnswer")){
+
+selectedAnswer=document.getElementById("blankAnswer").value;
+
+if(!selectedAnswer){
+alert("Enter your answer");
+return;
+}
+
+}
+
+/* MCQ / True False */
+
+else{
+
+const selected=document.querySelector("input[name='answer']:checked");
+
+if(!selected){
+alert("Select an answer");
+return;
+}
+
+selectedAnswer=selected.value;
+
+}
+
+const res=await fetch("/submit-answer",{
+method:"POST",
+headers:{
+"Content-Type":"application/json"
+},
+body:JSON.stringify({
+student_id:"S001",
+question_id:currentQuestionId,
+selected_answer:selectedAnswer
+})
+});
+
+const data=await res.json();
+
+currentDifficulty=data.next_difficulty;
+
+document.getElementById("result").innerHTML=
+
+data.correct
+? `✅ Correct! Next difficulty: ${data.next_difficulty}`
+: `❌ Wrong! Next difficulty: ${data.next_difficulty}`;
+
+loadQuiz();
+
+}
+
+</script>
+
+</body>
+</html>
